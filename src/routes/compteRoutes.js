@@ -1,21 +1,37 @@
+// src/routes/compteRoutes.js (CODE FINAL ET CORRIGÉ)
+
 const express = require('express');
-const { getCompte, getComptes } = require('../controllers/compteController');
-const { getBalance } = require('../controllers/transactionController'); // getBalance est dans le controller de transaction
+const { 
+  getCompte, 
+  getComptes, 
+  getBalance, // 👈 Doit être exporté par compteController.js
+} = require('../controllers/compteController'); 
 const { protect, authorize } = require('../middlewares/auth');
 
 const router = express.Router();
 
-router.use(protect); // Toutes les routes après ceci nécessitent un token
+// Middleware de protection : Toutes les routes après ceci nécessitent un token
+router.use(protect); 
 
-// Agent uniquement
+// ------------------------------------------------------------------
+// 1. ROUTES DE GESTION (AGENT UNIQUEMENT)
+// ------------------------------------------------------------------
+
+// GET /api/comptes - Obtenir tous les comptes
 router.route('/')
-  .get(authorize('agent'), getComptes);
+    .get(authorize('agent'), getComptes);
 
-// Accès par le titulaire du compte (couvert par 'protect' et vérification dans le contrôleur) ou l'Agent
-router.route('/:numero_compte')
-  .get(getCompte);
+// ------------------------------------------------------------------
+// 2. ROUTES PAR NUMÉRO DE COMPTE (AGENT OU PROPRIÉTAIRE)
+// ------------------------------------------------------------------
 
-router.route('/:numero_compte/solde')
-  .get(getBalance);
+// Route pour obtenir le solde
+// GET /api/comptes/:numero_compte/solde
+router.get('/:numero_compte/solde', getBalance); // 👈 C'est la ligne 19 qui posait problème
+
+// Route pour obtenir les informations complètes du compte
+// GET /api/comptes/:numero_compte
+router.get('/:numero_compte', getCompte); 
+
 
 module.exports = router;

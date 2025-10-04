@@ -3,8 +3,8 @@ const mongoose = require('mongoose');
 const TransactionSchema = new mongoose.Schema({
   type: {
     type: String,
-    enum: ['depot', 'retrait', 'transfert'], // Types de transactions
-    required: true
+    enum: ['depot', 'retrait', 'transfert'],
+    default: 'depot' // ⚡ Par défaut dépôt si rien n’est envoyé
   },
   montant: {
     type: Number,
@@ -14,24 +14,22 @@ const TransactionSchema = new mongoose.Schema({
   numero_compte_emetteur: {
     type: String,
     required: function() {
-      return this.type !== 'depot'; // Requis pour retrait et transfert
+      return this.type !== 'depot'; // Requis uniquement si ce n’est pas un dépôt
     }
   },
   numero_compte_recepteur: {
     type: String,
-    required: function() {
-      return this.type !== 'retrait'; // Requis pour dépôt et transfert
-    }
+    required: true // ⚡ Toujours requis pour dépôt
   },
   effectuee_par: {
     type: mongoose.Schema.ObjectId,
     ref: 'User',
-    required: true // L'utilisateur (Agent ou Distributeur) qui a initié l'action
+    required: true // ⚡ sera rempli côté backend (ex: req.user._id)
   },
   statut: {
     type: String,
     enum: ['en_attente', 'validee', 'annulee'],
-    default: 'validee' // La plupart des transactions initiées sont validées immédiatement
+    default: 'validee' // ⚡ Dépôt validé par défaut
   },
   motif_annulation: {
     type: String,
@@ -43,6 +41,7 @@ const TransactionSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   }
-});
 
-module.exports = mongoose.model('Transaction', TransactionSchema);
+},{ timestamps: true });
+
+module.exports = mongoose.model('Transaction', TransactionSchema, 'transactions');

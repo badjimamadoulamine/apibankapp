@@ -24,4 +24,4 @@ const CompteSchema = new mongoose.Schema({
   }
 });
 
-module.exports = mongoose.model('Compte', CompteSchema);
+module.exports = mongoose.model('Compte', CompteSchema, 'compte');
