@@ -73,7 +73,8 @@ exports.getDepots = async (req, res, next) => {
     try {
         const depots = await Transaction.find()
             .sort({ createdAt: -1 })
-            .populate('effectuee_par', 'nom prenom');
+            .populate('effectuee_par', 'nom prenom role numero_compte')
+
 
         if (!depots || depots.length === 0) {
             return res.status(200).json({ success: true, message: 'Aucun dépôt trouvé', data: [] });
@@ -129,7 +130,9 @@ exports.getTransactions = async (req, res, next) => {
         
         const transactions = await Transaction.find(query)
             .sort({ createdAt: -1 })
-            .limit(limit); // Application de la limite
+            .limit(limit)// Application de la limite
+            .populate('effectuee_par', 'nom prenom role numero_compte');
+
 
         res.status(200).json({
             success: true,

@@ -11,7 +11,7 @@ const jwt = require('jsonwebtoken');
 // Générer le token JWT
 const generateToken = (id) => {
     return jwt.sign({ id }, process.env.JWT_SECRET, {
-        expiresIn: '30d'
+        expiresIn: '30d' // Le token expire dans 30 jours
     });
 };
 
@@ -38,32 +38,139 @@ exports.login = async (req, res, next) => {
         if (!user || !(await user.comparePassword(mot_de_passe))) {
             return res.status(401).json({
                 success: false,
-                error: 'Identifiants invalides'
+                error: 'Numéro de compte ou mot de passe incorrect'
             });
         }
+        
+        // S'assurer que le modèle User a une méthode getPublicProfile() pour exclure le mot de passe
+        const userData = user.getPublicProfile ? user.getPublicProfile() : user; 
 
-        if (user.blocked) {
-            return res.status(403).json({
-                success: false,
-                error: 'Compte bloqué. Contactez un agent.'
-            });
-        }
-
-        // L'utilisateur est authentifié et non bloqué
         res.status(200).json({
             success: true,
             token: generateToken(user._id),
-            userId: user._id,
-            role: user.role,
-            numero_compte: user.numero_compte,
-            nom: user.nom,
-            prenom: user.prenom
+            data: userData
         });
+
     } catch (error) {
         next(error);
     }
 };
 
+// @desc    Obtenir le profil utilisateur actuel
+// @route   GET /api/users/profile
+// @access  Private
+exports.getProfile = async (req, res, next) => {
+    try {
+        // req.user.id est défini par le middleware d'authentification (protect)
+        const user = await User.findById(req.user.id).select('-mot_de_passe'); 
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: 'Profil non trouvé'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: user.getPublicProfile ? user.getPublicProfile() : user
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
+// @desc    Mettre à jour un utilisateur par ID
+// @route   PUT /api/users/:id
+// @access  Private (Agent uniquement)
+exports.updateUser = async (req, res, next) => {
+    try {
+        const userId = req.params.id;
+        const updateData = { ...req.body };
+
+        // Supprimer les champs qui ne doivent pas être modifiés
+        delete updateData.id;
+        delete updateData._id;
+        delete updateData.numero_compte; // Le numéro de compte ne change jamais
+        delete updateData.role; // Le rôle ne change pas ici
+        
+        // Si mot_de_passe est vide, le supprimer
+        if (!updateData.mot_de_passe) {
+            delete updateData.mot_de_passe;
+        }
+
+        const user = await User.findByIdAndUpdate(
+            userId,
+            updateData,
+            { 
+                new: true, 
+                runValidators: true 
+            }
+        ).select('-mot_de_passe');
+
+        if (!user) {
+            return res.status(404).json({ 
+                success: false, 
+                message: "Utilisateur non trouvé" 
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'Utilisateur mis à jour avec succès',
+            data: user.getPublicProfile ? user.getPublicProfile() : user
+        });
+    } catch (error) {
+        console.error('Erreur updateUser:', error);
+        next(error);
+    }
+};
+
+// @desc    Mettre à jour le profil de l'utilisateur connecté
+// @route   PUT /api/users/profile
+// @access  Private (Utilisateur connecté uniquement)
+exports.updateProfile = async (req, res, next) => {
+    try {
+        const user = await User.findById(req.user.id);
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: 'Profil non trouvé'
+            });
+        }
+        
+        // Mise à jour des champs (exclure l'email, le rôle et le numéro de compte)
+        user.nom = req.body.nom || user.nom;
+        user.prenom = req.body.prenom || user.prenom;
+        user.telephone = req.body.telephone || user.telephone;
+        user.adresse = req.body.adresse || user.adresse;
+        user.date_de_naissance = req.body.date_de_naissance || user.date_de_naissance;
+        user.numero_de_carte_d_identite = req.body.numero_de_carte_d_identite || user.numero_de_carte_d_identite;
+        
+        // Gérer la photo
+        if (req.body.photo) {
+            user.photo = req.body.photo;
+        }
+
+        // Gérer le changement de mot de passe
+        if (req.body.mot_de_passe) { 
+            user.mot_de_passe = req.body.mot_de_passe;
+        }
+        
+        const updatedUser = await user.save();
+        
+        res.status(200).json({
+            success: true,
+            message: 'Profil mis à jour avec succès',
+            data: updatedUser.getPublicProfile ? updatedUser.getPublicProfile() : updatedUser
+        });
+
+    } catch (error) {
+        console.error('Erreur updateProfile:', error);
+        next(error);
+    }
+};
 // @desc    Logout utilisateur
 // @route   POST /api/users/logout
 // @access  Public
@@ -194,22 +301,20 @@ exports.createUser = async (req, res, next) => {
 // @route   GET /api/users
 // @access  Private (Agent uniquement)
 exports.getUsers = async (req, res, next) => {
-    try {
-        const total = await User.countDocuments();
-        const users = await User.find().select('-mot_de_passe');
-
-        res.status(200).json({
-            success: true,
-            data: {
-                items: users,
-                totalCount: total
-            }
-        });
-    } catch (error) {
-        next(error);
-    }
+  try {
+    const users = await User.find().select('-mot_de_passe');
+    res.status(200).json({
+      success: true,
+      data: users // 👈 compatible avec res?.data?.data côté React
+    });
+  } catch (error) {
+    console.error("Erreur récupération utilisateurs:", error);
+    res.status(500).json({
+      success: false,
+      error: "Erreur lors du chargement des utilisateurs."
+    });
+  }
 };
-
 // @desc    Obtenir un utilisateur par ID
 // @route   GET /api/users/:id
 // @access  Private (Agent ou Propriétaire)
