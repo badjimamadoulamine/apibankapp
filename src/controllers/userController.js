@@ -23,8 +23,11 @@ const generateToken = (id) => {
 // @route   POST /api/users/login
 // @access  Public
 exports.login = async (req, res, next) => {
-    try {
+   try {
         const { numero_compte, mot_de_passe } = req.body;
+
+        console.log('🔐 Tentative de login:');
+        console.log('   - Numéro compte:', numero_compte);
 
         if (!numero_compte || !mot_de_passe) {
             return res.status(400).json({
@@ -35,14 +38,49 @@ exports.login = async (req, res, next) => {
 
         const user = await User.findOne({ numero_compte }).select('+mot_de_passe');
 
-        if (!user || !(await user.comparePassword(mot_de_passe))) {
+        console.log('👤 Utilisateur trouvé:', user ? 'OUI' : 'NON');
+        if (user) {
+            console.log('   - Rôle:', user.role);
+        }
+
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                error: 'Numéro de compte ou mot de passe incorrect'
+            });
+        }
+
+        // ✅ VÉRIFICATION DU MOT DE PASSE
+        const isPasswordValid = await user.comparePassword(mot_de_passe);
+        console.log('🔑 Mot de passe valide:', isPasswordValid);
+
+        if (!isPasswordValid) {
             return res.status(401).json({
                 success: false,
                 error: 'Numéro de compte ou mot de passe incorrect'
             });
         }
         
-        // S'assurer que le modèle User a une méthode getPublicProfile() pour exclure le mot de passe
+        // ✅ VÉRIFICATION DU RÔLE (NOUVEAUTÉ)
+        if (user.role !== 'agent') {
+            console.log('⛔ Accès refusé: rôle =', user.role);
+            return res.status(403).json({
+                success: false,
+                error: 'Accès refusé. Seuls les agents peuvent se connecter à cette interface.'
+            });
+        }
+
+        // ✅ VÉRIFICATION SI BLOQUÉ
+        if (user.blocked) {
+            console.log('⛔ Compte bloqué');
+            return res.status(403).json({
+                success: false,
+                error: 'Votre compte a été bloqué. Contactez l\'administrateur.'
+            });
+        }
+        
+        console.log('✅ Connexion autorisée pour l\'agent:', user.prenom, user.nom);
+        
         const userData = user.getPublicProfile ? user.getPublicProfile() : user; 
 
         res.status(200).json({
@@ -52,6 +90,7 @@ exports.login = async (req, res, next) => {
         });
 
     } catch (error) {
+        console.error('❌ Erreur login:', error);
         next(error);
     }
 };
@@ -465,6 +504,153 @@ exports.bulkBlock = async (req, res, next) => {
             message: `${ids.length} utilisateur(s) ${block ? 'bloqué(s)' : 'débloqué(s)'} avec succès`
         });
     } catch (error) {
+        next(error);
+    }
+};
+// Ajoutez cette fonction dans userController.js
+
+// @desc    Obtenir le profil de l'utilisateur connecté (alias pour /profile)
+// @route   GET /api/users/me
+// @access  Private
+// Dans userController.js - AJOUTEZ CETTE FONCTION
+
+// @desc    Obtenir le profil de l'utilisateur connecté (alias pour /profile)
+// @route   GET /api/users/me
+// @access  Private
+exports.getCurrentUser = async (req, res, next) => {
+    try {
+        console.log('👤 Récupération profil utilisateur connecté - ID:', req.user.id);
+        
+        const user = await User.findById(req.user.id).select('-mot_de_passe');
+
+        if (!user) {
+            console.log('❌ Utilisateur non trouvé pour ID:', req.user.id);
+            return res.status(404).json({
+                success: false,
+                error: 'Profil non trouvé'
+            });
+        }
+
+        console.log('✅ Profil trouvé:', user.email, '- Rôle:', user.role);
+
+        const userProfile = user.getPublicProfile ? user.getPublicProfile() : {
+            id: user._id,
+            nom: user.nom,
+            prenom: user.prenom,
+            email: user.email,
+            role: user.role,
+            telephone: user.telephone,
+            photo: user.photo,
+            date_de_naissance: user.date_de_naissance,
+            adresse: user.adresse,
+            numero_de_carte_d_identite: user.numero_de_carte_d_identite,
+            numero_compte: user.numero_compte,
+            blocked: user.blocked
+        };
+
+        res.status(200).json({
+            success: true,
+            data: userProfile
+        });
+
+    } catch (error) {
+        console.error('❌ Erreur getCurrentUser:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Erreur serveur lors de la récupération du profil'
+        });
+    }
+};
+
+// Dans userController.js - AJOUTEZ CES FONCTIONS
+
+// @desc    Mettre à jour la photo de profil
+// @route   PUT /api/users/:id/photo
+// @access  Private
+exports.updatePhoto = async (req, res, next) => {
+    try {
+        const user = await User.findById(req.params.id);
+        
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: 'Utilisateur non trouvé'
+            });
+        }
+
+        // Vérifier les permissions
+        if (req.user.role !== 'agent' && req.user.id !== user._id.toString()) {
+            return res.status(403).json({
+                success: false,
+                error: 'Non autorisé à modifier ce profil'
+            });
+        }
+
+        // Vérifier si un fichier est uploadé
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                error: 'Aucun fichier uploadé'
+            });
+        }
+
+        // Mettre à jour la photo
+        user.photo = req.file.path || `/uploads/${req.file.filename}`;
+        await user.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Photo mise à jour avec succès',
+            data: user.getPublicProfile()
+        });
+
+    } catch (error) {
+        console.error('Erreur updatePhoto:', error);
+        next(error);
+    }
+};
+
+// 🎯 MODIFIEZ updateProfile POUR SUPPORTER LES FICHIERS
+exports.updateProfile = async (req, res, next) => {
+    try {
+        const user = await User.findById(req.user.id);
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: 'Profil non trouvé'
+            });
+        }
+        
+        // Mise à jour des champs texte
+        user.nom = req.body.nom || user.nom;
+        user.prenom = req.body.prenom || user.prenom;
+        user.telephone = req.body.telephone || user.telephone;
+        user.adresse = req.body.adresse || user.adresse;
+        user.date_de_naissance = req.body.date_de_naissance || user.date_de_naissance;
+        user.numero_de_carte_d_identite = req.body.numero_de_carte_d_identite || user.numero_de_carte_d_identite;
+        
+        // 🎯 GESTION DE LA PHOTO - Si un fichier est uploadé
+        if (req.file) {
+            user.photo = req.file.path || `/uploads/${req.file.filename}`;
+            console.log('📸 Photo mise à jour:', user.photo);
+        }
+
+        // Gérer le changement de mot de passe
+        if (req.body.mot_de_passe) { 
+            user.mot_de_passe = req.body.mot_de_passe;
+        }
+        
+        const updatedUser = await user.save();
+        
+        res.status(200).json({
+            success: true,
+            message: 'Profil mis à jour avec succès',
+            data: updatedUser.getPublicProfile ? updatedUser.getPublicProfile() : updatedUser
+        });
+
+    } catch (error) {
+        console.error('Erreur updateProfile:', error);
         next(error);
     }
 };

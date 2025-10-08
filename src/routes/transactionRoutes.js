@@ -26,8 +26,8 @@ router.post('/retrait', authorize('distributeur'), retrait);
 router.post('/transfert', transfert);
 
 // Annuler transaction : Agent uniquement
-// DELETE /api/transactions/cancel/:id
-router.delete('/cancel/:id', authorize('agent'), cancelTransaction);
+// DELETE /api/transactions/:id
+router.delete('/:id', authorize('agent'), cancelTransaction);
 
 // Obtenir historique des transactions : Titulaire du compte ou Agent
 // GET /api/transactions/:numero_compte

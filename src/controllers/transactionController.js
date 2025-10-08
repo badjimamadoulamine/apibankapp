@@ -2,6 +2,10 @@
 
 const Transaction = require('../models/Transaction');
 const Compte = require('../models/Compte');
+// Import de Types pour vérifier si l'ID est un ObjectId valide
+const mongoose = require('mongoose');
+const { Types } = mongoose;
+
 
 // ------------------------------------------------------------------
 // UTILS
@@ -146,55 +150,163 @@ exports.getTransactions = async (req, res, next) => {
 
 
 // @desc    Annuler une transaction (Agent uniquement)
+// controllers/transactionController.js
+
+// @desc    Annuler une transaction (Agent uniquement)
+// @route   DELETE /api/transactions/:id
+// @access  Private (Agent)
+// @desc    Annuler une transaction (Agent uniquement)
+// @route   DELETE /api/transactions/:id
+// @access  Private (Agent)
 exports.cancelTransaction = async (req, res, next) => {
     const session = await Compte.startSession();
     session.startTransaction();
 
     try {
-        const transaction = await Transaction.findById(req.params.id);
+        const transactionId = req.params.id;
 
-        if (!transaction || transaction.est_annule) {
-            throw new Error(`Transaction ${!transaction ? 'introuvable.' : 'déjà annulée.'}`);
+        console.log('🔄 Tentative d\'annulation de la transaction:', transactionId);
+
+        let transaction;
+        
+        // --- 🎯 CORRECTION: Vérifier explicitement si l'ID est un ObjectId valide ---
+        if (Types.ObjectId.isValid(transactionId)) {
+             // Si c'est un ObjectId valide (24 caractères), on cherche par _id
+            transaction = await Transaction.findById(transactionId).session(session);
+        } else {
+            // Si ce n'est pas un ObjectId, on suppose que c'est un autre identifiant 
+            // unique de transaction (ex: un champ 'id_transaction' si vous en avez un)
+             transaction = await Transaction.findOne({ 
+                id_transaction: transactionId 
+            }).session(session);
+        }
+        // --------------------------------------------------------------------------
+        
+
+        if (!transaction) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Transaction introuvable.' 
+            });
         }
 
-        // On cherche le compte receveur (là où l'argent est allé ou d'où il est venu)
-        const compte = await Compte.findOne({ 
-            numero_compte: transaction.numero_compte_recepteur 
-        }).session(session);
+        // Vérifier si déjà annulée
+        if (transaction.est_annule) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Cette transaction a déjà été annulée.' 
+            });
+        }
+
+        // Vérifier le statut
+        if (transaction.statut === 'annulee' || transaction.statut === 'Annulé') {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Transaction déjà annulée.' 
+            });
+        }
+
+        console.log('✅ Transaction trouvée:', {
+            id: transaction._id,
+            type: transaction.type,
+            montant: transaction.montant,
+            emetteur: transaction.numero_compte_emetteur,
+            recepteur: transaction.numero_compte_recepteur
+        });
+
+        // Chercher le compte concerné (selon le type de transaction)
+        let compte;
+        
+        if (transaction.type === 'depot') {
+            // Pour un dépôt : retirer l'argent du compte récepteur
+            compte = await Compte.findOne({ 
+                numero_compte: transaction.numero_compte_recepteur 
+            }).session(session);
+        } else if (transaction.type === 'retrait') {
+            // Pour un retrait : remettre l'argent au compte émetteur
+            compte = await Compte.findOne({ 
+                numero_compte: transaction.numero_compte_emetteur 
+            }).session(session);
+        } else if (transaction.type === 'transfert') {
+            // Pour un transfert : gérer les deux comptes
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(400).json({ 
+                success: false, 
+                error: 'L\'annulation de transfert n\'est pas encore implémentée.' 
+            });
+        }
         
         if (!compte) {
-            throw new Error('Compte associé introuvable.');
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Compte associé introuvable.' 
+            });
         }
-        
-        // Logique d'annulation : appliquer l'opération inverse
+
+        console.log('💰 Solde avant annulation:', compte.solde);
+
+        // Appliquer l'opération inverse
         if (transaction.type === 'depot') {
+            // Annuler un dépôt = retirer l'argent
+            if (compte.solde < transaction.montant) {
+                await session.abortTransaction();
+                session.endSession();
+                return res.status(400).json({ 
+                    success: false, 
+                    error: 'Solde insuffisant pour annuler cette transaction.' 
+                });
+            }
             compte.solde -= transaction.montant;
         } else if (transaction.type === 'retrait') {
+            // Annuler un retrait = remettre l'argent
             compte.solde += transaction.montant;
-        } 
-        
-        checkBalance(compte, transaction.montant);
+        }
 
-        await compte.save();
+        await compte.save({ session });
+
+        console.log('💰 Solde après annulation:', compte.solde);
 
         // Marquer la transaction comme annulée
         transaction.est_annule = true;
-        transaction.date_annulation = Date.now();
-        transaction.annule_par = req.user.id;
-        transaction.statut = 'Annulé';
-        await transaction.save();
+        transaction.date_annulation = new Date();
+        transaction.annule_par = req.user._id || req.user.id;
+        transaction.statut = 'annulee';
+        await transaction.save({ session });
 
+        // Valider la transaction MongoDB
         await session.commitTransaction();
+
+        console.log('✅ Transaction annulée avec succès');
 
         res.status(200).json({
             success: true,
-            message: `Transaction ${req.params.id} annulée.`,
-            nouveau_solde: compte.solde
+            message: `Transaction annulée avec succès.`,
+            nouveau_solde: compte.solde,
+            data: {
+                transaction_id: transaction._id,
+                type: transaction.type,
+                montant: transaction.montant,
+                date_annulation: transaction.date_annulation
+            }
         });
 
     } catch (error) {
+        console.error('❌ Erreur lors de l\'annulation:', error);
         await session.abortTransaction();
-        next(error);
+        
+        res.status(500).json({ 
+            success: false, 
+            error: error.message || 'Erreur lors de l\'annulation de la transaction.' 
+        });
     } finally {
         session.endSession();
     }
