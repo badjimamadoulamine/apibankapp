@@ -280,6 +280,8 @@ exports.cancelTransaction = async (req, res, next) => {
         transaction.date_annulation = new Date();
         transaction.annule_par = req.user._id || req.user.id;
         transaction.statut = 'annulee';
+        // 🎯 CORRECTION: Ajout du motif d'annulation ici pour satisfaire la validation conditionnelle.
+        transaction.motif_annulation = 'Annulation automatique par l\'agent.'; 
         await transaction.save({ session });
 
         // Valider la transaction MongoDB
