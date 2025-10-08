@@ -4,7 +4,7 @@ const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/userController');
 const { protect, authorize } = require('../middleware/auth');
-const { upload, handleUploadError } = require('../middleware/upload'); // ✅ IMPORT CORRECT
+const upload = require('../middleware/upload');
 
 // ------------------------------------------------------------------
 // Routes Publiques
