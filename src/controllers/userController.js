@@ -446,23 +446,75 @@ exports.getUserByNumeroCompte = async (req, res, next) => {
 // @desc    Mettre à jour un utilisateur par ID
 // @route   PUT /api/users/:id
 // @access  Private (Agent uniquement)
+// Dans userController.js - VÉRIFIEZ que la photo est bien retournée
+
 exports.updateUser = async (req, res, next) => {
     try {
+        console.log('📸 Update User - Fichier reçu:', req.file);
+        console.log('📝 Données reçues:', req.body);
+
+        const userId = req.params.id;
+        const updateData = { ...req.body };
+
+        // Supprimer les champs qui ne doivent pas être modifiés
+        delete updateData.id;
+        delete updateData._id;
+        delete updateData.numero_compte;
+        delete updateData.role;
+        
+        // Si mot_de_passe est vide, le supprimer
+        if (!updateData.mot_de_passe) {
+            delete updateData.mot_de_passe;
+        }
+
+        // 🎯 GESTION DE LA PHOTO
+        if (req.file) {
+            const baseUrl = process.env.BASE_URL || 'https://apibankapp.onrender.com';
+            updateData.photo = `${baseUrl}/uploads/${req.file.filename}`;
+            console.log('✅ Photo mise à jour dans updateUser:', updateData.photo);
+        }
+
         const user = await User.findByIdAndUpdate(
-            req.params.id,
-            req.body,
-            { new: true, runValidators: true }
-        );
+            userId,
+            updateData,
+            { 
+                new: true, 
+                runValidators: true 
+            }
+        ).select('-mot_de_passe');
 
         if (!user) {
-            return res.status(404).json({ success: false, message: "Utilisateur non trouvé" });
+            return res.status(404).json({ 
+                success: false, 
+                message: "Utilisateur non trouvé" 
+            });
         }
+
+        // 🎯 CRITIQUE : S'assurer que la photo est dans la réponse
+        const userProfile = user.getPublicProfile ? user.getPublicProfile() : {
+            id: user._id,
+            nom: user.nom,
+            prenom: user.prenom,
+            email: user.email,
+            role: user.role,
+            telephone: user.telephone,
+            photo: user.photo, // ✅ BIEN INCLUSE
+            date_naissance: user.date_naissance,
+            adresse: user.adresse,
+            numero_carte_identite: user.numero_carte_identite,
+            numero_compte: user.numero_compte,
+        };
+
+        console.log('✅ Réponse updateUser - Photo:', userProfile.photo);
 
         res.status(200).json({
             success: true,
-            data: user.getPublicProfile()
+            message: 'Utilisateur mis à jour avec succès',
+            data: userProfile
         });
+
     } catch (error) {
+        console.error('❌ Erreur updateUser:', error);
         next(error);
     }
 };
