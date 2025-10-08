@@ -1,64 +1,49 @@
+// userRoutes.js (VERSION CORRIGÉE AVEC UPLOAD)
+
 const express = require('express');
-const userController = require('../controllers/userController');
-const { protect, authorize } = require('../middlewares/auth');
-const { validateUserCreation } = require('../utils/validators');
-
 const router = express.Router();
+const userController = require('../controllers/userController');
+const { protect, authorize } = require('../middleware/auth');
+const { upload, handleUploadError } = require('../middleware/upload'); // ✅ IMPORT CORRECT
 
 // ------------------------------------------------------------------
-// 1. ROUTES PUBLIQUES
+// Routes Publiques
 // ------------------------------------------------------------------
-
-// POST /api/v1/users/login - Connexion
 router.post('/login', userController.login);
-
-// POST /api/v1/users/logout - Déconnexion
 router.post('/logout', userController.logout);
 
 // ------------------------------------------------------------------
-// 2. MIDDLEWARE DE PROTECTION (Token requis pour toutes les routes ci-dessous)
-// ------------------------------------------------------------------
-router.use(protect); 
-
-// ------------------------------------------------------------------
-// 3. ROUTES PRIVÉES / SÉCURITÉ
+// Routes Privées (Authentification requise)
 // ------------------------------------------------------------------
 
-// PUT /api/v1/users/change-password
-router.put('/change-password', userController.changePassword); 
+// 🎯 IMPORTANT: Les routes FIXES doivent venir AVANT les routes paramétrées
+
+// Profil utilisateur connecté
+router.get('/profile', protect, userController.getProfile);
+router.put('/profile', protect, upload.single('photo'), handleUploadError, userController.updateProfile); // ✅ AVEC GESTION ERREUR
+router.put('/change-password', protect, userController.changePassword);
+
+// Route spécifique par numéro de compte
+router.get('/compte/:numero_compte', protect, userController.getUserByNumeroCompte);
 
 // ------------------------------------------------------------------
-// 4. ROUTES PRIVÉES (Nécessitent Token + Rôle Agent)
+// GESTION DES UTILISATEURS (Agent uniquement)
 // ------------------------------------------------------------------
 
-// POST /api/v1/users/ - Créer un utilisateur (Agent)
-// GET /api/v1/users/ - Obtenir tous les utilisateurs (Agent)
+// CRUD Utilisateurs
 router.route('/')
-    .post(authorize('agent'), validateUserCreation, userController.createUser)
-    .get(authorize('agent'), userController.getUsers);
+    .get(protect, authorize('agent'), userController.getUsers)
+    .post(protect, authorize('agent'), userController.createUser);
 
-// POST /api/v1/users/bulk-delete - Supprimer plusieurs utilisateurs (Agent)
-router.post('/bulk-delete', authorize('agent'), userController.bulkDelete);
-
-// POST /api/v1/users/bulk-block - Bloquer/Débloquer plusieurs utilisateurs (Agent)
-router.post('/bulk-block', authorize('agent'), userController.bulkBlock);
-
-// POST /api/v1/users/toggle-block/:id - Basculer le statut bloqué/débloqué (Agent)
-router.post('/toggle-block/:id', authorize('agent'), userController.toggleBlockUser);
-
-// ------------------------------------------------------------------
-// 5. ROUTES PAR ID (Agent ou Propriétaire)
-// ------------------------------------------------------------------
-
-// GET /api/v1/users/compte/:numero_compte - Obtenir par numéro de compte (Agent/Propriétaire)
-router.get('/compte/:numero_compte', userController.getUserByNumeroCompte);
-
-// GET /api/v1/users/:id - Obtenir par ID
-// PUT /api/v1/users/:id - Mettre à jour par ID
-// DELETE /api/v1/users/:id - Supprimer par ID
+// 🎯 CETTE ROUTE DOIT VENIR APRÈS LES ROUTES SPÉCIFIQUES
 router.route('/:id')
-    .get(userController.getUserById)
-    .put(userController.updateUser)
-    .delete(authorize('agent'), userController.deleteUser);
+    .get(protect, userController.getUserById)
+    .put(protect, authorize('agent'), upload.single('photo'), handleUploadError, userController.updateUser)
+    .delete(protect, authorize('agent'), userController.deleteUser);
+
+// Actions de groupe
+router.post('/toggle-block/:id', protect, authorize('agent'), userController.toggleBlockUser);
+router.post('/bulk-delete', protect, authorize('agent'), userController.bulkDelete);
+router.post('/bulk-block', protect, authorize('agent'), userController.bulkBlock);
 
 module.exports = router;

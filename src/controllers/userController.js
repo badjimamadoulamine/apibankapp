@@ -168,8 +168,16 @@ exports.updateUser = async (req, res, next) => {
 // @desc    Mettre à jour le profil de l'utilisateur connecté
 // @route   PUT /api/users/profile
 // @access  Private (Utilisateur connecté uniquement)
+// Dans userController.js - CORRIGEZ updateProfile
+
+// @desc    Mettre à jour le profil de l'utilisateur connecté (AVEC PHOTO)
+// @route   PUT /api/users/profile
+// @access  Private
 exports.updateProfile = async (req, res, next) => {
     try {
+        console.log('📸 Mise à jour profil - Fichier reçu:', req.file);
+        console.log('📝 Données reçues:', req.body);
+
         const user = await User.findById(req.user.id);
 
         if (!user) {
@@ -179,35 +187,75 @@ exports.updateProfile = async (req, res, next) => {
             });
         }
         
-        // Mise à jour des champs (exclure l'email, le rôle et le numéro de compte)
+        // 🎯 MISE À JOUR DES CHAMPS TEXTE (NOMS CORRIGÉS)
         user.nom = req.body.nom || user.nom;
         user.prenom = req.body.prenom || user.prenom;
         user.telephone = req.body.telephone || user.telephone;
         user.adresse = req.body.adresse || user.adresse;
-        user.date_de_naissance = req.body.date_de_naissance || user.date_de_naissance;
-        user.numero_de_carte_d_identite = req.body.numero_de_carte_d_identite || user.numero_de_carte_d_identite;
+        user.date_naissance = req.body.date_naissance || user.date_naissance; // ✅ CORRIGÉ
+        user.numero_carte_identite = req.body.numero_carte_identite || user.numero_carte_identite; // ✅ CORRIGÉ
         
-        // Gérer la photo
-        if (req.body.photo) {
-            user.photo = req.body.photo;
+        // 🎯 GESTION CRITIQUE DE LA PHOTO
+        if (req.file) {
+            // Construire l'URL complète de la photo
+            const baseUrl = process.env.BASE_URL || 'https://apibankapp.onrender.com';
+            user.photo = `${baseUrl}/uploads/${req.file.filename}`;
+            console.log('✅ Photo mise à jour:', user.photo);
         }
 
-        // Gérer le changement de mot de passe
-        if (req.body.mot_de_passe) { 
+        // 🎯 GESTION DU MOT DE PASSE (seulement si fourni)
+        if (req.body.mot_de_passe && req.body.mot_de_passe.trim() !== '') {
             user.mot_de_passe = req.body.mot_de_passe;
+            console.log('🔑 Mot de passe mis à jour');
         }
         
         const updatedUser = await user.save();
         
+        // Préparer la réponse
+        const userProfile = {
+            id: updatedUser._id,
+            nom: updatedUser.nom,
+            prenom: updatedUser.prenom,
+            email: updatedUser.email,
+            role: updatedUser.role,
+            telephone: updatedUser.telephone,
+            photo: updatedUser.photo,
+            date_naissance: updatedUser.date_naissance, // ✅ CORRIGÉ
+            adresse: updatedUser.adresse,
+            numero_carte_identite: updatedUser.numero_carte_identite, // ✅ CORRIGÉ
+            numero_compte: updatedUser.numero_compte,
+        };
+
         res.status(200).json({
             success: true,
             message: 'Profil mis à jour avec succès',
-            data: updatedUser.getPublicProfile ? updatedUser.getPublicProfile() : updatedUser
+            data: userProfile
         });
 
     } catch (error) {
-        console.error('Erreur updateProfile:', error);
-        next(error);
+        console.error('❌ Erreur updateProfile:', error);
+        
+        // Gestion des erreurs de validation Mongoose
+        if (error.name === 'ValidationError') {
+            const errors = Object.values(error.errors).map(err => err.message);
+            return res.status(400).json({
+                success: false,
+                error: errors.join(', ')
+            });
+        }
+        
+        // Erreur de duplication
+        if (error.code === 11000) {
+            return res.status(400).json({
+                success: false,
+                error: 'Cette adresse email existe déjà'
+            });
+        }
+        
+        res.status(500).json({
+            success: false,
+            error: 'Erreur serveur lors de la mise à jour du profil'
+        });
     }
 };
 // @desc    Logout utilisateur
