@@ -17,10 +17,8 @@ const app = express();
 // 🧠 CONFIGURATION CORS (⚠️ essentielle pour Render + Vercel)
 // -----------------------------------------------------------
 const allowedOrigins = [
-  'http://localhost:5173',          // ton front local (Vite)
-  'http://localhost:3000',          // autre port local
-  'https://tonfrontend.vercel.app', // ton futur front sur Vercel
-  process.env.FRONTEND_URL,         // URL depuis les variables d'environnement
+  'http://localhost:5173',          // ton front local (Vite) 
+  'https://frontapibank.onrender.com', // front déployé sur Render
 ].filter(Boolean); // Retire les valeurs undefined
 
 app.use(cors({
